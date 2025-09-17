@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Battery Cost Decline Explorer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" defer></script>
+  <script src="script.js" defer></script>
+</head>
+<body>
+  <div class="aurora"></div>
+  <header class="app-header">
+    <div>
+      <p class="eyebrow">Interactive Wright's Law Sandbox</p>
+      <h1>Battery Cost Decline Explorer</h1>
+      <p class="lede">Play with adoption trajectories and learning rates to see how NMC, LFP, and Sodium-ion cell costs might evolve as deployment accelerates.</p>
+    </div>
+    <button class="reset-button" id="resetButton" type="button">Reset to defaults</button>
+  </header>
+
+  <main class="layout">
+    <section class="panel controls-panel">
+      <h2>Market Uptake</h2>
+      <p class="panel-description">Set how quickly cumulative production grows. Wright's law works on the number of doublings from today's baseline.</p>
+      <div class="control-group">
+        <label for="startYear">Baseline year</label>
+        <input type="number" id="startYear" value="2024" min="2000" max="2100">
+      </div>
+      <div class="control-group">
+        <label for="forecastYears">Forecast horizon <span class="value" data-target="forecastYears"></span></label>
+        <input type="range" id="forecastYears" min="3" max="25" value="12">
+      </div>
+      <div class="control-group">
+        <label for="totalDoublings">Total doublings over horizon <span class="value" data-target="totalDoublings"></span></label>
+        <input type="range" id="totalDoublings" min="0" max="8" step="0.25" value="5">
+      </div>
+      <div class="control-group">
+        <label for="uptakeShape">Uptake cadence</label>
+        <select id="uptakeShape">
+          <option value="linear">Steady (linear doublings)</option>
+          <option value="front">Front-loaded (fast start)</option>
+          <option value="back">Back-loaded (late surge)</option>
+          <option value="s-curve">S-curve (logistic)</option>
+        </select>
+      </div>
+      <p class="hint">Total doublings translate to cumulative production growth. For example, 5 doublings equals a 32× increase in cumulative output.</p>
+    </section>
+
+    <section class="panel chem-panel">
+      <h2>Cell Chemistry Assumptions</h2>
+      <p class="panel-description">Each card lets you tweak the baseline cost, floor, and learning rate for a chemistry. Floors come from materials costs and learning rates from literature.</p>
+      <div class="chemistry-grid" id="chemistryGrid"></div>
+    </section>
+
+    <section class="visual-panel">
+      <div class="summary-grid" id="summaryGrid"></div>
+      <div class="card chart-card">
+        <div class="card-header">
+          <h2>Cost trajectory</h2>
+          <p class="card-subtitle">Smoothed Wright's law with a materials floor. Hover to inspect annual values.</p>
+        </div>
+        <canvas id="costChart" height="340"></canvas>
+      </div>
+      <div class="card table-card">
+        <div class="card-header">
+          <h2>Forecast table</h2>
+          <p class="card-subtitle">Costs ($/kWh) by year and chemistry.</p>
+        </div>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Year</th>
+                <th>LFP</th>
+                <th>NMC-811</th>
+                <th>Sodium-ion</th>
+              </tr>
+            </thead>
+            <tbody id="forecastTable"></tbody>
+          </table>
+        </div>
+      </div>
+      <section class="card notes-card">
+        <h2>How this model works</h2>
+        <ul>
+          <li>Cost declines follow Wright's law: <code>C(n) = C<sub>floor</sub> + (C<sub>0</sub> - C<sub>floor</sub>)(1 - LR)<sup>n</sup></code>.</li>
+          <li>Learning rates (LR) capture fractional cost drop for each doubling of cumulative production.</li>
+          <li>Materials floors use the bill-of-materials intensities and commodity prices referenced in the model description.</li>
+          <li>Change assumptions at will—the chart, summary, and table respond instantly.</li>
+        </ul>
+      </section>
+    </section>
+  </main>
+
+  <footer>
+    <p>Built for rapid scenario exploration. Share feedback or adapt with your own bill-of-materials inputs.</p>
+  </footer>
+</body>
+</html>
