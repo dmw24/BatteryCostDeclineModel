@@ -30,6 +30,77 @@ const defaultChemistries = {
 
 let chemistries = JSON.parse(JSON.stringify(defaultChemistries));
 
+const HISTORY_END_YEAR = 2024;
+
+const historicalData = {
+  lfp: [
+    { year: 2010, cost: 600 },
+    { year: 2012, cost: 420 },
+    { year: 2014, cost: 310 },
+    { year: 2016, cost: 215 },
+    { year: 2018, cost: 162 },
+    { year: 2020, cost: 130 },
+    { year: 2022, cost: 96 },
+    { year: 2023, cost: 76 },
+    { year: 2024, cost: 59 },
+  ],
+  nmc: [
+    { year: 2010, cost: 780 },
+    { year: 2012, cost: 560 },
+    { year: 2014, cost: 410 },
+    { year: 2016, cost: 290 },
+    { year: 2018, cost: 210 },
+    { year: 2020, cost: 160 },
+    { year: 2022, cost: 120 },
+    { year: 2023, cost: 92 },
+    { year: 2024, cost: 68.6 },
+  ],
+  sodium: [
+    { year: 2012, cost: 650 },
+    { year: 2014, cost: 520 },
+    { year: 2016, cost: 410 },
+    { year: 2018, cost: 320 },
+    { year: 2020, cost: 250 },
+    { year: 2021, cost: 220 },
+    { year: 2022, cost: 185 },
+    { year: 2023, cost: 140 },
+    { year: 2024, cost: 87 },
+  ],
+};
+
+const historyYears = Array.from(
+  new Set(
+    Object.values(historicalData)
+      .flatMap((series) => series.map((point) => point.year))
+      .filter((year) => year <= HISTORY_END_YEAR),
+  ),
+).sort((a, b) => a - b);
+
+function hexToRgb(hex) {
+  if (!hex) return { r: 255, g: 255, b: 255 };
+  const normalized = hex.replace('#', '');
+  const bigint = parseInt(normalized, 16);
+  return {
+    r: (bigint >> 16) & 255,
+    g: (bigint >> 8) & 255,
+    b: bigint & 255,
+  };
+}
+
+function mixWithWhite(hex, amount = 0.25, alpha = 1) {
+  const { r, g, b } = hexToRgb(hex);
+  const mix = (channel) => Math.round(channel + (255 - channel) * amount);
+  const nr = mix(r);
+  const ng = mix(g);
+  const nb = mix(b);
+  return alpha === 1 ? `rgb(${nr}, ${ng}, ${nb})` : `rgba(${nr}, ${ng}, ${nb}, ${alpha})`;
+}
+
+function withAlpha(hex, alpha = 1) {
+  const { r, g, b } = hexToRgb(hex);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 const controls = {
   startYear: document.getElementById('startYear'),
   forecastYears: document.getElementById('forecastYears'),
@@ -42,6 +113,7 @@ const controls = {
 const chemistryGrid = document.getElementById('chemistryGrid');
 const summaryGrid = document.getElementById('summaryGrid');
 const tableBody = document.getElementById('forecastTable');
+const historyTableBody = document.getElementById('historyTable');
 
 controls.valueLabels.forEach((span) => {
   const target = span.dataset.target;
@@ -139,6 +211,7 @@ Object.values(chemistries).forEach((chem) => {
 });
 
 let chart;
+let materialsChart;
 
 function buildChart() {
   const ctx = document.getElementById('costChart').getContext('2d');
@@ -151,15 +224,26 @@ function buildChart() {
         data: [],
         fill: false,
         borderColor: chem.color,
-        backgroundColor: chem.color,
+        backgroundColor: withAlpha(chem.color, 0.25),
         borderWidth: 3,
         pointRadius: 0,
+        pointHoverRadius: 5,
         tension: 0.32,
+        spanGaps: true,
+        segment: {
+          borderDash: (ctx) => (ctx.p0?.raw?.history && ctx.p1?.raw?.history ? [6, 4] : undefined),
+          borderColor: (ctx) =>
+            ctx.p0?.raw?.history && ctx.p1?.raw?.history ? mixWithWhite(chem.color, 0.4) : chem.color,
+        },
       })),
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      interaction: {
+        mode: 'index',
+        intersect: false,
+      },
       plugins: {
         legend: {
           labels: {
@@ -179,7 +263,10 @@ function buildChart() {
           padding: 12,
           displayColors: true,
           callbacks: {
-            label: (context) => `${context.dataset.label}: $${context.parsed.y.toFixed(2)} /kWh`,
+            label: (context) => {
+              const modeLabel = context.raw?.history ? 'historical' : 'modeled';
+              return `${context.dataset.label}: $${context.parsed.y.toFixed(2)} /kWh (${modeLabel})`;
+            },
           },
         },
       },
@@ -191,6 +278,11 @@ function buildChart() {
           ticks: {
             color: 'rgba(226, 232, 240, 0.8)',
           },
+          title: {
+            display: true,
+            text: 'Year',
+            color: 'rgba(226, 232, 240, 0.7)',
+          },
         },
         y: {
           grid: {
@@ -199,6 +291,87 @@ function buildChart() {
           ticks: {
             color: 'rgba(226, 232, 240, 0.8)',
             callback: (value) => `$${value}`,
+          },
+          title: {
+            display: true,
+            text: 'Pack cost ($/kWh)',
+            color: 'rgba(226, 232, 240, 0.7)',
+          },
+        },
+      },
+    },
+  });
+}
+
+function buildMaterialsChart() {
+  const canvas = document.getElementById('materialsChart');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  materialsChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: [],
+      datasets: [
+        {
+          label: 'Materials floor',
+          data: [],
+          backgroundColor: [],
+          borderRadius: 14,
+          borderSkipped: false,
+          stack: 'baseline',
+        },
+        {
+          label: 'Above-floor portion',
+          data: [],
+          backgroundColor: [],
+          borderRadius: 14,
+          borderSkipped: false,
+          stack: 'baseline',
+        },
+      ],
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: {
+            color: 'rgba(243, 244, 246, 0.85)',
+            usePointStyle: true,
+          },
+        },
+        tooltip: {
+          backgroundColor: 'rgba(15, 23, 42, 0.95)',
+          borderColor: 'rgba(148, 163, 184, 0.4)',
+          borderWidth: 1,
+          titleColor: '#f8fafc',
+          bodyColor: '#e2e8f0',
+          padding: 12,
+          callbacks: {
+            label: (context) => `${context.dataset.label}: $${context.parsed.x.toFixed(2)}`,
+          },
+        },
+      },
+      scales: {
+        x: {
+          stacked: true,
+          grid: {
+            color: 'rgba(148, 163, 184, 0.08)',
+          },
+          ticks: {
+            color: 'rgba(226, 232, 240, 0.8)',
+            callback: (value) => `$${value}`,
+          },
+        },
+        y: {
+          stacked: true,
+          grid: {
+            display: false,
+          },
+          ticks: {
+            color: 'rgba(226, 232, 240, 0.85)',
           },
         },
       },
@@ -216,6 +389,7 @@ function buildSummaryCards() {
       <h4>${chem.name}</h4>
       <span class="value" data-role="summaryValue">$${chem.baselineCost.toFixed(2)}</span>
       <span class="delta" data-role="summaryDelta">Baseline</span>
+      <span class="meta" data-role="summaryFloor">Floor: $${chem.floorCost.toFixed(2)}/kWh</span>
     `;
     summaryGrid.appendChild(card);
   });
@@ -252,11 +426,61 @@ function updateSummary(chem, costs) {
   if (!card) return;
   const valueEl = card.querySelector('[data-role="summaryValue"]');
   const deltaEl = card.querySelector('[data-role="summaryDelta"]');
+  const floorEl = card.querySelector('[data-role="summaryFloor"]');
   const final = costs[costs.length - 1];
   const change = ((chem.baselineCost - final) / chem.baselineCost) * 100;
   valueEl.textContent = `$${final.toFixed(2)}`;
   deltaEl.textContent = `${change >= 0 ? '▼' : '▲'} ${Math.abs(change).toFixed(1)}% vs baseline`;
   deltaEl.style.color = change >= 0 ? 'var(--positive)' : '#f87171';
+  if (floorEl) floorEl.textContent = `Floor: $${chem.floorCost.toFixed(2)}/kWh`;
+}
+
+function updateMaterialsChart() {
+  if (!materialsChart) return;
+  const chemList = Object.values(chemistries);
+  const floors = chemList.map((chem) => chem.floorCost);
+  const baselines = chemList.map((chem) => chem.baselineCost);
+  const aboveFloor = baselines.map((value, index) => Math.max(value - floors[index], 0));
+
+  materialsChart.data.labels = chemList.map((chem) => chem.name);
+  materialsChart.data.datasets[0].data = floors;
+  materialsChart.data.datasets[0].backgroundColor = chemList.map((chem) => withAlpha(chem.color, 0.75));
+  materialsChart.data.datasets[1].data = aboveFloor;
+  materialsChart.data.datasets[1].backgroundColor = chemList.map((chem) => mixWithWhite(chem.color, 0.65, 0.55));
+  materialsChart.update();
+}
+
+function updateHistoryTable() {
+  if (!historyTableBody) return;
+  historyTableBody.innerHTML = '';
+  const lookup = Object.fromEntries(
+    Object.entries(historicalData).map(([id, series]) => [id, new Map(series.map((point) => [point.year, point.cost]))]),
+  );
+
+  historyYears.forEach((year) => {
+    const row = document.createElement('tr');
+    const yearCell = document.createElement('td');
+    yearCell.textContent = year;
+    row.appendChild(yearCell);
+
+    ['lfp', 'nmc', 'sodium'].forEach((id) => {
+      const cell = document.createElement('td');
+      let value = lookup[id].get(year);
+      if (year === HISTORY_END_YEAR) {
+        value = chemistries[id].baselineCost;
+      }
+
+      if (typeof value === 'number') {
+        cell.textContent = `$${value.toFixed(2)}`;
+      } else {
+        cell.textContent = '—';
+        cell.classList.add('empty');
+      }
+      row.appendChild(cell);
+    });
+
+    historyTableBody.appendChild(row);
+  });
 }
 
 function updateTable(yearLabels, costMap) {
@@ -278,28 +502,67 @@ function updateTable(yearLabels, costMap) {
 
 function updateModel() {
   const years = Number(controls.forecastYears.value);
-  const startYear = Number(controls.startYear.value);
+  let startYear = Number(controls.startYear.value);
   const totalDoublings = Number(controls.totalDoublings.value);
   const shape = controls.uptakeShape.value;
 
-  const labels = Array.from({ length: years }, (_, i) => startYear + i);
-  const doublingsByYear = labels.map((_, index) => adoptionProgress(index, years, shape) * totalDoublings);
+  if (startYear < HISTORY_END_YEAR) {
+    startYear = HISTORY_END_YEAR;
+    controls.startYear.value = HISTORY_END_YEAR;
+  }
+
+  const forecastYears = Array.from({ length: years }, (_, i) => startYear + i);
+  const doublingsByYear = forecastYears.map(
+    (_, index) => adoptionProgress(index, forecastYears.length, shape) * totalDoublings,
+  );
+  const forecastIndexByYear = new Map(forecastYears.map((year, index) => [year, index]));
+  const combinedYears = [
+    ...historyYears,
+    ...forecastYears.filter((year) => !historyYears.includes(year)),
+  ];
 
   const costMap = {};
 
   Object.values(chemistries).forEach((chem, idx) => {
     const dataset = chart.data.datasets[idx];
     const costs = doublingsByYear.map((d) => computeCost(chem, d));
-    dataset.data = costs;
+    const historyLookup = new Map(historicalData[chem.id].map((point) => [point.year, point.cost]));
+
     dataset.borderColor = chem.color;
-    dataset.backgroundColor = chem.color;
+    dataset.backgroundColor = withAlpha(chem.color, 0.25);
+    dataset.data = combinedYears.map((year) => {
+      let value = null;
+      if (year < HISTORY_END_YEAR) {
+        value = historyLookup.get(year) ?? null;
+      } else if (year === HISTORY_END_YEAR) {
+        value = chem.baselineCost;
+      }
+
+      if (forecastIndexByYear.has(year)) {
+        value = costs[forecastIndexByYear.get(year)];
+      } else if (year > HISTORY_END_YEAR) {
+        const futureIndex = forecastIndexByYear.get(year);
+        if (typeof futureIndex === 'number') {
+          value = costs[futureIndex];
+        }
+      }
+
+      return {
+        x: year,
+        y: typeof value === 'number' ? value : null,
+        history: year <= HISTORY_END_YEAR,
+      };
+    });
+
     costMap[chem.id] = costs;
     updateSummary(chem, costs);
   });
 
-  chart.data.labels = labels;
+  chart.data.labels = combinedYears;
   chart.update();
-  updateTable(labels, costMap);
+  updateTable(forecastYears, costMap);
+  updateMaterialsChart();
+  updateHistoryTable();
 }
 
 function resetDefaults() {
@@ -319,5 +582,6 @@ function resetDefaults() {
 }
 
 buildChart();
+buildMaterialsChart();
 buildSummaryCards();
 updateModel();
